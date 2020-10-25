@@ -52,11 +52,11 @@ public class assign2 {
 		
 		Dataset<Row> xdataset =inputDataset.flatMap(new FlatMapFunction<Row,Row>(){
 			public Iterator<Row> call(Row row) throws Exception {
-				Row articleRow = getArticleFromJson(row);
-				List<String> words = Arrays.asList((articleRow.getString(2)).split(" "));
+				Row articleRow = getArticleBody(row);
+				List<String> words = Arrays.asList((articleRow.getString(0)).split(" "));
 				
 				return words.stream()
-					.map(word -> RowFactory.create(word, articleRow.get(3)))
+					.map(word -> RowFactory.create(word, articleRow.get(1)))
 					.collect(Collectors.toList())
 					.iterator();
 
@@ -96,21 +96,18 @@ public class assign2 {
 		Dataset<Row> previous_dd = countpair.drop("count");
 		//finaldataset_dd.show();
 		Dataset<Row> result =  finaldataset_dd.unionAll(previous_dd).except(finaldataset_dd.intersect(previous_dd));
-//		result.show();
+ 		result.show();
 //		result.toJavaRDD().saveAsTextFile(outputPath);
 	}
 
 
-private static Row getArticleFromJson(Row row) {
-	String yearMonthPublished = ((String) row.getAs("date_published")).substring(0, 10);
-	int year = Integer.parseInt(yearMonthPublished.substring(0,4));
-	int month = Integer.parseInt(yearMonthPublished.substring(5, 7));
+private static Row getArticleBody(Row row) {
 	String articleBody = (String) row.getAs("article_body");
 	String id = row.getAs("article_id");
 	articleBody = articleBody.toLowerCase().replaceAll("[^A-Za-z'\\-]", " "); // Remove all punctuation and convert to lower case
 	articleBody = articleBody.replaceAll("( )+", " "); // Remove all double spaces
 	articleBody = articleBody.trim();
 	
-	return RowFactory.create(year, month, articleBody, id);
+	return RowFactory.create(articleBody, id);
 }
 }
