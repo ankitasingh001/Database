@@ -1,0 +1,59 @@
+Spark assignment
+
+NOTE: Assignment can be done in a group of 2.  You can take help from friends regarding concepts, but you are NOT allowed to see code developed by another group, or show your code to another group.  If you get stuck and need help debugging, you can take help from your TAS.     Any odd person out can do the assignment individually, but can do a subset of the task OR form a group of 3 (but email me about it)
+
+In this assignment you will write Spark code to process a set of files (articles) in a dataset in parallel to find co-occurrences of entities in articles.  For example, if an article mentions Narendra Modi and Rahul Gandhi, we say that the two entities co-occur.    To keep your life simple, we assume that entity names are single words (Modi, Gandhi, etc), and we assume no two entities have the same name.  The list of entities to consider is at the end of this page; use it in a constant array in your program.
+
+Input:
+
+    You are provided with a set of news articles as json files in a zip file that you should expand into a directory.
+    Each json file contains metadata about the article and the article content (article_body) itself.
+
+Objective of your code:
+
+In every article some entities may be mentioned.  Two different entities mentioned in an article are said to co-occur in the article. 
+
+You have the following tasks
+
+    Create a dataset with (entity, article_id) pairs where the article contains the entity.  There should not be any duplicate rows. Print the dataset.
+    Using the dataset from (1) create a dataset containing (entity, count) pairs indicating how many articles the entity occurs in.  Entities that don't occur in any dataset should not be output.   Print the dataset.  You should tokenize the input, and perform case-insensitive comparison; the wordcount program example will help you with this.
+    Using the dataset from (1), create a dataset with ((e1, e2), count) where count is the total number of news articles that (e1, e2) both occur in, for all entity pairs (e1, e2).   If a pair of entites do not co-occur,  you should not include them.  Print the dataset
+    Using the datasets from (2) and (3), create a dataset with entity pairs (e1, e2) such that e1 and e2 occur in at least one news article, but the pair does not occur in any article.  Print the dataset.
+
+Tips on creating datasets:
+
+To create a row with unnamed attributes (default name _c1, _c2, etc):  
+
+           Row returnRow=RowFactory.create(attr1, attr2)
+To create a dataset of rows in Step 1 of the assignment, you need to create an encoder which 
+basically creates an efficient binary representation of Row data.   
+Encoders can be created as shown in NewsMonthRow sample code file.   
+There a structtype is created and 1 attribute is added.  You can add more attributes in the 
+same way by a sequence of add calls.
+
+Submission guidelines:Submit your .java file(s) along with a README (in case you want to specify anything about your assignment) as a single tar.gz or zip file. The name of the tar file should be rollnum1_rollnum2.tar.gz or rollnum1_rollnum2.zip. The name of the java file should be Cooccurence_Count.java.
+
+List of entities:
+
+modi
+rahul
+jaitley
+sonia
+lalu
+nitish
+farooq
+sushma
+tharoor
+smriti
+mamata
+karunanidhi
+kejriwal
+sidhu
+yogi
+mayawati
+akhilesh
+chandrababu
+chidambaram
+fadnavis
+uddhav
+pawar	
