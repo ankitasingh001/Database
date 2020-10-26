@@ -15,10 +15,10 @@ In every article some entities may be mentioned.  Two different entities mention
 
 You have the following tasks
 
-    Create a dataset with (entity, article_id) pairs where the article contains the entity.  There should not be any duplicate rows. Print the dataset.
-    Using the dataset from (1) create a dataset containing (entity, count) pairs indicating how many articles the entity occurs in.  Entities that don't occur in any dataset should not be output.   Print the dataset.  You should tokenize the input, and perform case-insensitive comparison; the wordcount program example will help you with this.
-    Using the dataset from (1), create a dataset with ((e1, e2), count) where count is the total number of news articles that (e1, e2) both occur in, for all entity pairs (e1, e2).   If a pair of entites do not co-occur,  you should not include them.  Print the dataset
-    Using the datasets from (2) and (3), create a dataset with entity pairs (e1, e2) such that e1 and e2 occur in at least one news article, but the pair does not occur in any article.  Print the dataset.
+   1. Create a dataset with (entity, article_id) pairs where the article contains the entity.  There should not be any duplicate rows. Print the dataset.
+   2. Using the dataset from (1) create a dataset containing (entity, count) pairs indicating how many articles the entity occurs in.  Entities that don't occur in any dataset should not be output.   Print the dataset.  You should tokenize the input, and perform case-insensitive comparison; the wordcount program example will help you with this.
+   3. Using the dataset from (1), create a dataset with ((e1, e2), count) where count is the total number of news articles that (e1, e2) both occur in, for all entity pairs (e1, e2).   If a pair of entites do not co-occur,  you should not include them.  Print the dataset
+   4. Using the datasets from (2) and (3), create a dataset with entity pairs (e1, e2) such that e1 and e2 occur in at least one news article, but the pair does not occur in any article.  Print the dataset.
 
 Tips on creating datasets:
 
