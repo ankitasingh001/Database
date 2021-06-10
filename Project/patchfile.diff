@@ -1,0 +1,332 @@
+diff --git a/src/backend/executor/nodeSeqscan.c b/src/backend/executor/nodeSeqscan.c
+index 436b43f..333e143 100644
+--- a/src/backend/executor/nodeSeqscan.c
++++ b/src/backend/executor/nodeSeqscan.c
+@@ -32,6 +32,15 @@
+ #include "executor/execdebug.h"
+ #include "executor/nodeSeqscan.h"
+ #include "utils/rel.h"
++#include "executor/spi.h"		//Added by ankita
++
++/*added by ankita*/
++int count_tuples_scanned;
++int count_tuples = 0;
++float SINGLE_ATTR_THRESHOLD = 0.4;
++float MULTIPLE_ATTR_THRESHOLD =0.01;
++int TABLE_SIZE_THRESHOLD = 500;
++/*added by ankita*/
+ 
+ static TupleTableSlot *SeqNext(SeqScanState *node);
+ 
+@@ -49,7 +58,8 @@ static TupleTableSlot *SeqNext(SeqScanState *node);
+ static TupleTableSlot *
+ SeqNext(SeqScanState *node)
+ {
+-	TableScanDesc scandesc;
++	HeapTuple	tuple;
++	TableScanDesc scandesc;			//HeapScanDesc scandesc;
+ 	EState	   *estate;
+ 	ScanDirection direction;
+ 	TupleTableSlot *slot;
+@@ -77,6 +87,7 @@ SeqNext(SeqScanState *node)
+ 	/*
+ 	 * get the next tuple from the table
+ 	 */
++	count_tuples ++;
+ 	if (table_scan_getnextslot(scandesc, direction, slot))
+ 		return slot;
+ 	return NULL;
+@@ -105,7 +116,7 @@ SeqRecheck(SeqScanState *node, TupleTableSlot *slot)
+  * ----------------------------------------------------------------
+  */
+ static TupleTableSlot *
+-ExecSeqScan(PlanState *pstate)
++ExecSeqScan(PlanState *pstate) /*ankita the place where number of tuples can be seen*/
+ {
+ 	SeqScanState *node = castNode(SeqScanState, pstate);
+ 
+@@ -183,13 +194,161 @@ ExecInitSeqScan(SeqScan *node, EState *estate, int eflags)
+ void
+ ExecEndSeqScan(SeqScanState *node)
+ {
++	Relation relation;
+ 	TableScanDesc scanDesc;
++	/*
++		 * The following declarations and code are added by Ankita for creating single/composite indices
++		 */
++		Relation ins_rel;
++		bool req_index = false;
++		Oid relationId;
++		int num_attrs;
++		int counter = 0;
++		int tuples_returned;
++		int *attr_id_list;
++		char relation_name[64];
++		char attr_name[64];
++		int tot_scans = count_tuples-1;
++		List* quals_list;
++		char query_string[1024];
++		bool is_cat_table = false;
++		char temp_query[1024];
++		int ret = 0;
++		bzero(relation_name,64);
++		bzero(attr_name,64);
++		count_tuples = 0;
++
++		/*
++			 * Firstly create a temporary table to store values of attribute & relation
++			 * on which index needs to be created.
++			 * We will need this at the end of execution to check if index needs to be created or not.
++			 */
++
++			/* Connect to SPI manager */
++			if ((ret = SPI_connect()) < 0)
++				/* internal error */
++				elog(ERROR, "crosstab: SPI_connect returned %d", ret);
++			char check_query[1500] =
++					"select * from pg_class where relname = 'pg_indices_stats';";
++			char insert_query[2000] =
++					"create table pg_indices_stats (relname varchar, attr_name varchar, PRIMARY KEY(relname,attr_name));";
++
++			int lol = SPI_exec(check_query, 0);
++			fflush(stdout);
++			if (SPI_processed == 0) {
++				SPI_exec(insert_query, 0);
++				SPI_finish();
++			}
++			SPI_finish();
++
+ 
+ 	/*
+ 	 * get information from node
+ 	 */
++	relation = node->ss.ss_currentRelation;
+ 	scanDesc = node->ss.ss_currentScanDesc;
+ 
++
++	/*
++		 * added to initialize global count tracker to the number of tuples scanned
++		 */
++		fflush(stdout);
++		tuples_returned = (int)(node->ss.ps.state->es_processed);
++		printf("\n Tuples returned = %d ",tuples_returned);
++		fflush(stdout);
++
++		printf("\n Tuples scanned = %d ",tot_scans);
++		fflush(stdout);
++
++		/*
++		* Get relation name
++		*/
++		strncpy(relation_name,relation->rd_rel->relname.data,63);
++		relation_name[63]='\0';
++		printf("\n Relation name = %s \n",relation_name);
++		fflush(stdout);
++		/*
++		* Check if relation is a catalog table i.e. starting with pg_
++		*/
++		is_cat_table = (relation_name[0]=='p' && relation_name[1]=='g' && relation_name[2]=='_')? true:false;
++
++
++		/*
++		 * Print original query
++		 */
++		strcpy(query_string,node->ss.ps.state->es_sourceText);
++		printf("Query = %s",query_string);
++		fflush(stdout);
++		/*
++		* quals_list contains the list of attributes passed in the where clause of the original query
++		*/
++		quals_list = node->ss.ps.plan->qual;
++
++		/*
++		 * Create index only if attributes exists and size of table is greater than threshold size
++		 * Table should not be a system table
++		 */
++		if (quals_list != NULL && tot_scans > TABLE_SIZE_THRESHOLD && !is_cat_table)
++				req_index = true;
++
++		if(req_index)
++			{
++				ListCell *lc = quals_list->head;
++
++				//Get number of attributes passed in the query
++				num_attrs = quals_list->length;
++				//printf("%d",num_attrs);
++				attr_id_list = palloc(num_attrs*sizeof(int));
++
++				//find out the relation from relationId.
++				relationId = relation->rd_id;
++				ins_rel = RelationIdGetRelation(relationId);
++
++				/*
++				* Store attribute names and ids in different variables for later usage
++				*/
++				char attr_name_list[2][64];
++				if(num_attrs!=0)
++				  {
++					for (int i =0;i<num_attrs;i++)
++						{
++						OpExpr *exp1 = ((OpExpr*)lc->data.ptr_value);
++						int attr_id = (exp1->inputcollid == 0) ?((Var*) exp1->args->head->data.ptr_value)->varattno : ((Var*) ((RelabelType*) exp1->args->head->data.ptr_value)->arg)->varattno;
++						attr_id_list[counter]= attr_id;
++						strncpy(attr_name,(ins_rel->rd_att->attrs[attr_id - 1].attname).data,63);
++						attr_name[63] = '\0';
++						strcpy(attr_name_list[counter],attr_name);
++						printf("\n ATTRIBUTE NAME = %s ",attr_name);
++						fflush(stdout);
++						lc = lc->next;
++						counter++;
++						}
++				  }
++				/*
++						 * Index creation code
++						 * Add the required attribute and relation name in pg_indices_stats table.
++						 * Actual creation will be done after execution cycle is complete in postgres.c
++						 */
++
++				if ((float)(tuples_returned/tot_scans)<SINGLE_ATTR_THRESHOLD && num_attrs==1 && req_index)
++					{
++							printf("\n INDEX NEEDS TO BE CREATED FOR %s ", attr_name_list[0]);
++							fflush(stdout);
++							char tmp_query[1024];
++							bzero(tmp_query, 1024);
++							SPI_connect();
++							sprintf(tmp_query,
++									"INSERT  INTO pg_indices_stats VALUES('%s','%s') ON CONFLICT DO NOTHING;",
++									relation_name, attr_name_list[0]);
++							SPI_exec(tmp_query, 0);
++							SPI_finish();
++
++					}
++
++			}
++		/*
++			 * End of code by added by Ankita
++			 */
+ 	/*
+ 	 * Free the exprcontext
+ 	 */
+diff --git a/src/backend/tcop/postgres.c b/src/backend/tcop/postgres.c
+index ee1b4f6..c425982 100644
+--- a/src/backend/tcop/postgres.c
++++ b/src/backend/tcop/postgres.c
+@@ -36,6 +36,10 @@
+ #include "rusagestub.h"
+ #endif
+ 
++
++#include "executor/spi.h" /*added by ankita*/
++#include "utils/rel.h"/*added by ankita*/
++#include "executor/nodeSeqscan.h" /*added by ankita*/
+ #include "access/parallel.h"
+ #include "access/printtup.h"
+ #include "access/xact.h"
+@@ -992,6 +996,14 @@ exec_simple_query(const char *query_string)
+ 	bool		use_implicit_block;
+ 	char		msec_str[32];
+ 
++	/* added by ankita*/
++		/*start*/
++		char *ins_relname;
++		char *ins_colname;
++		char ins_colname1[64];
++		short INDEX_PROCESSING_REQUIRED=0;
++		/*end*/
++
+ 	/*
+ 	 * Report query to various monitoring facilities.
+ 	 */
+@@ -1224,6 +1236,58 @@ exec_simple_query(const char *query_string)
+ 
+ 		PortalDrop(portal, false);
+ 
++		/*
++		* Added by ankita
++		* Check if there is any need for creation of indices in this run
++		*/
++
++		int ret = 0;
++		char check_index_query[1500] =
++							"select * from pg_indices_stats;";
++		char delete_entry[1500]="DELETE FROM pg_indices_stats;";
++		HeapTuple	tuple;
++		/*
++		* Connect to SPI manager
++		*/
++		if ((ret = SPI_connect()) < 0)
++			/* internal error */
++			elog(ERROR, "SPI connect failure - returned %d", ret);
++		/*
++		* Retrieve the desired tuple
++		*/
++
++		ret = SPI_exec(check_index_query, 0);
++
++		/*
++		 * Only allow one qualifying tuple
++		 * We consider only one index query would be stored in this table.
++		 * Otherwise we throw an error and skip processing
++		 */
++		if ((ret == SPI_OK_SELECT) && (SPI_processed > 1))
++			ereport(ERROR,
++					(errcode(ERRCODE_CARDINALITY_VIOLATION),
++							errmsg("Index criteria matched more than one record")));
++		else if (ret == SPI_OK_SELECT && SPI_processed == 1) {
++
++			SPITupleTable *tuptable = SPI_tuptable;
++			tuple = SPI_copytuple(tuptable->vals[0]);
++			ins_relname = SPI_getvalue(tuple, tuptable->tupdesc,1);
++			ins_colname = SPI_getvalue(tuple, tuptable->tupdesc,2);
++			INDEX_PROCESSING_REQUIRED=1;
++			SPI_exec(delete_entry, 0);
++			SPI_finish();
++
++		} else {
++				/*
++				 * no qualifying tuples
++				 */
++				SPI_finish();
++
++			}
++				/*
++				 * End of code inserted by ankita
++				 */
++
+ 		if (lnext(parsetree_item) == NULL)
+ 		{
+ 			/*
+@@ -1303,6 +1367,33 @@ exec_simple_query(const char *query_string)
+ 	TRACE_POSTGRESQL_QUERY_DONE(query_string);
+ 
+ 	debug_query_string = NULL;
++
++	/*
++	* added by ankita to create indices if indices table has a value
++	* Final phase of index creation
++	*/
++	if(INDEX_PROCESSING_REQUIRED == 1)
++		{
++		char tmp_query[1024];
++
++		printf("\n ENTERED THE INDEX CREATION PROCESS ->", INDEX_PROCESSING_REQUIRED);
++		fflush(stdout);
++		/*
++		* Create index if not exists
++		*/
++		bzero(tmp_query, 1024);
++		sprintf(tmp_query, "CREATE INDEX IF NOT EXISTS %s_%s on %s(%s)", ins_relname,
++						ins_colname, ins_relname, ins_colname);
++		printf("%s",tmp_query);
++		fflush(stdout);
++
++		exec_simple_query(tmp_query);
++		printf("\nINDEX HAS BEEN CREATED! HOORAAYYY!");
++		fflush(stdout);
++		}
++	/*
++	 * End of code added by ankita
++	 */
+ }
+ 
+ /*
